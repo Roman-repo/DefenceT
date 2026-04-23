@@ -1,4 +1,5 @@
 // Конфигурация игры
+// Phase 3: Тестовое изменение для ветки
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
