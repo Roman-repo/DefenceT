@@ -37,6 +37,54 @@
             margin-bottom: 5px;
             font-weight: bold;
         }
+        #wave-status {
+            font-size: 16px;
+            color: #f1c40f;
+            margin-top: 5px;
+        }
+        #pause-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            pointer-events: auto;
+            background: #e67e22;
+            border: 1px solid #d35400;
+        }
+        #pause-btn:hover {
+            background: #d35400;
+        }
+        #pause-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            pointer-events: auto;
+        }
+        #pause-overlay h2 {
+            font-size: 48px;
+            color: white;
+            margin-bottom: 30px;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+        }
+        #pause-overlay button {
+            font-size: 24px;
+            padding: 15px 40px;
+            background: #27ae60;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #pause-overlay button:hover {
+            background: #2ecc71;
+        }
         #controls {
             margin-top: 15px;
             display: flex;
@@ -81,6 +129,14 @@
         <div class="stat">❤️ Жизни: <span id="lives-display">10</span></div>
         <div class="stat">💰 Деньги: <span id="money-display">100</span></div>
         <div class="stat">🌊 Волна: <span id="wave-display">1</span></div>
+        <div id="wave-status">Ожидание...</div>
+    </div>
+
+    <button id="pause-btn" onclick="togglePause()">⏸ Пауза</button>
+
+    <div id="pause-overlay">
+        <h2>ПАУЗА</h2>
+        <button onclick="togglePause()">▶ Продолжить</button>
     </div>
 
     <div id="game-over">
