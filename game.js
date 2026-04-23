@@ -13,10 +13,13 @@ const gameState = {
     particles: [],
     selectedTowerType: null,
     gameOver: false,
+    isPaused: false, // Флаг паузы
     frameCount: 0,
     spawnTimer: 0,
     enemiesToSpawn: 0,
-    spawnInterval: 60 // кадров между спавном врагов
+    spawnInterval: 60, // кадров между спавном врагов
+    waveInProgress: false, // Идет ли сейчас спавн врагов
+    currentWaveEnemies: [] // План врагов на текущую волну
 };
 
 // Типы башен
@@ -38,29 +41,50 @@ const waypoints = [
     { x: 800, y: 500 } // Конец пути
 ];
 
+// Типы врагов
+const ENEMY_TYPES = {
+    normal: { name: 'Обычный', color: '#e74c3c', speedMod: 1.0, healthMod: 1.0, reward: 15, radius: 15 },
+    fast: { name: 'Быстрый', color: '#f1c40f', speedMod: 1.8, healthMod: 0.6, reward: 20, radius: 12 },
+    tank: { name: 'Танк', color: '#8e44ad', speedMod: 0.6, healthMod: 2.5, reward: 30, radius: 20 },
+    boss: { name: 'БОСС', color: '#c0392b', speedMod: 0.4, healthMod: 5.0, reward: 100, radius: 30 }
+};
+
 // Класс Врага
 class Enemy {
-    constructor(wave) {
+    constructor(wave, typeKey = 'normal') {
         this.wpIndex = 0;
         this.x = waypoints[0].x;
         this.y = waypoints[0].y;
-        this.radius = 15;
-        this.speed = 1.5 + (wave * 0.1);
-        this.maxHealth = 50 + (wave * 20);
+        
+        const typeStats = ENEMY_TYPES[typeKey];
+        this.typeKey = typeKey;
+        this.radius = typeStats.radius;
+        this.color = typeStats.color;
+        
+        // Сложность растет с волной
+        const difficultyMult = 1 + (wave * 0.15);
+        
+        this.speed = (1.5 * typeStats.speedMod) + (wave * 0.05);
+        this.maxHealth = Math.floor((50 * typeStats.healthMod) * difficultyMult);
         this.health = this.maxHealth;
         this.frozen = 0;
-        this.reward = 15;
+        this.reward = Math.floor(typeStats.reward * (1 + wave * 0.1));
     }
 
     update() {
+        if (this.frozen > 0) this.frozen--;
+
         const target = waypoints[this.wpIndex + 1];
         if (!target) return; // Достиг конца
 
         const dx = target.x - this.x;
         const dy = target.y - this.y;
         const dist = Math.hypot(dx, dy);
+        
+        let currentSpeed = this.speed;
+        if (this.frozen > 0) currentSpeed *= 0.5; // Замедление
 
-        if (dist < this.speed) {
+        if (dist < currentSpeed) {
             this.x = target.x;
             this.y = target.y;
             this.wpIndex++;
@@ -68,16 +92,23 @@ class Enemy {
                 this.reachedEnd();
             }
         } else {
-            this.x += (dx / dist) * this.speed;
-            this.y += (dy / dist) * this.speed;
+            this.x += (dx / dist) * currentSpeed;
+            this.y += (dy / dist) * currentSpeed;
         }
     }
 
     draw() {
-        ctx.fillStyle = '#e74c3c';
+        ctx.fillStyle = this.color;
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.fill();
+        
+        // Обводка для босса
+        if (this.typeKey === 'boss') {
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
         
         // Полоска здоровья
         const hpPercent = this.health / this.maxHealth;
@@ -85,6 +116,15 @@ class Enemy {
         ctx.fillRect(this.x - 15, this.y - 25, 30, 4);
         ctx.fillStyle = '#2ecc71';
         ctx.fillRect(this.x - 15, this.y - 25, 30 * hpPercent, 4);
+        
+        // Эффект заморозки
+        if (this.frozen > 0) {
+            ctx.strokeStyle = '#3498db';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius + 3, 0, Math.PI * 2);
+            ctx.stroke();
+        }
     }
 
     reachedEnd() {
@@ -98,7 +138,7 @@ class Enemy {
         this.health -= amount;
         if (this.health <= 0) {
             gameState.money += this.reward;
-            createParticles(this.x, this.y, '#e74c3c');
+            createParticles(this.x, this.y, this.color);
             updateUI();
         }
     }
@@ -339,13 +379,66 @@ function distToSegment(p, v, w) {
     return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
 }
 
+// Генерация состава волны (разные типы врагов)
+function generateWaveComposition(waveNum) {
+    const composition = [];
+    const totalEnemies = 5 + Math.floor(waveNum * 1.5);
+    
+    // Босс каждые 10 волн
+    if (waveNum % 10 === 0 && waveNum > 0) {
+        composition.push({ type: 'boss', count: 1 });
+    }
+    
+    // Танки появляются с 5 волны
+    if (waveNum >= 5) {
+        const tankCount = Math.floor(totalEnemies * 0.2);
+        if (tankCount > 0) composition.push({ type: 'tank', count: tankCount });
+    }
+    
+    // Быстрые враги с 3 волны
+    if (waveNum >= 3) {
+        const fastCount = Math.floor(totalEnemies * 0.3);
+        if (fastCount > 0) composition.push({ type: 'fast', count: fastCount });
+    }
+    
+    // Остальные - обычные
+    const usedCount = composition.reduce((sum, item) => sum + item.count, 0);
+    const normalCount = totalEnemies - usedCount;
+    if (normalCount > 0) {
+        composition.push({ type: 'normal', count: normalCount });
+    }
+    
+    // Перемешиваем порядок спавна
+    const spawnQueue = [];
+    composition.forEach(item => {
+        for (let i = 0; i < item.count; i++) {
+            spawnQueue.push(item.type);
+        }
+    });
+    
+    // Тасуем массив (алгоритм Фишера-Йетса)
+    for (let i = spawnQueue.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [spawnQueue[i], spawnQueue[j]] = [spawnQueue[j], spawnQueue[i]];
+    }
+    
+    return spawnQueue;
+}
+
 function startWave() {
-    gameState.enemiesToSpawn = 5 + Math.floor(gameState.wave * 1.5);
+    if (gameState.waveInProgress) return;
+    
+    gameState.currentWaveEnemies = generateWaveComposition(gameState.wave);
+    gameState.enemiesToSpawn = gameState.currentWaveEnemies.length;
     gameState.spawnTimer = 0;
+    gameState.waveInProgress = true;
+    
+    // Обновляем UI для отображения "Волна началась"
+    updateUI();
 }
 
 function update() {
-    if (gameState.gameOver) return;
+    if (gameState.gameOver || gameState.isPaused) return;
 
     gameState.frameCount++;
 
@@ -353,16 +446,23 @@ function update() {
     if (gameState.enemiesToSpawn > 0) {
         gameState.spawnTimer++;
         if (gameState.spawnTimer >= gameState.spawnInterval) {
-            gameState.enemies.push(new Enemy(gameState.wave));
+            const nextEnemyType = gameState.currentWaveEnemies.shift();
+            gameState.enemies.push(new Enemy(gameState.wave, nextEnemyType));
             gameState.enemiesToSpawn--;
             gameState.spawnTimer = 0;
         }
     } else if (gameState.enemies.length === 0 && gameState.enemiesToSpawn === 0) {
         // Волна закончена
+        gameState.waveInProgress = false;
         gameState.wave++;
         updateUI();
-        setTimeout(startWave, 2000); // Пауза перед следующей волной
-        startWave();
+        
+        // Автоматический старт следующей волны через паузу
+        setTimeout(() => {
+            if (!gameState.gameOver && !gameState.isPaused) {
+                startWave();
+            }
+        }, 2000);
     }
 
     // Обновление сущностей
@@ -466,6 +566,31 @@ function updateUI() {
     document.getElementById('lives-display').innerText = gameState.lives;
     document.getElementById('money-display').innerText = gameState.money;
     document.getElementById('wave-display').innerText = gameState.wave;
+    
+    // Обновление статуса волны
+    const waveStatusEl = document.getElementById('wave-status');
+    if (waveStatusEl) {
+        if (gameState.waveInProgress) {
+            waveStatusEl.innerText = `Врагов: ${gameState.enemies.length + gameState.enemiesToSpawn}`;
+        } else {
+            waveStatusEl.innerText = 'Ожидание...';
+        }
+    }
+}
+
+function togglePause() {
+    gameState.isPaused = !gameState.isPaused;
+    
+    const pauseBtn = document.getElementById('pause-btn');
+    const pauseOverlay = document.getElementById('pause-overlay');
+    
+    if (gameState.isPaused) {
+        pauseBtn.innerText = '▶ Продолжить';
+        if (pauseOverlay) pauseOverlay.style.display = 'flex';
+    } else {
+        pauseBtn.innerText = '⏸ Пауза';
+        if (pauseOverlay) pauseOverlay.style.display = 'none';
+    }
 }
 
 function endGame() {
@@ -473,6 +598,15 @@ function endGame() {
     document.getElementById('final-wave').innerText = gameState.wave;
     document.getElementById('game-over').style.display = 'block';
 }
+
+// Обработка клавиши Pause (Пробел или Esc)
+document.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' || e.code === 'Escape') {
+        if (!gameState.gameOver) {
+            togglePause();
+        }
+    }
+});
 
 // Старт
 startWave();
