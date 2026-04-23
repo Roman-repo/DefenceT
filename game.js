@@ -1,5 +1,5 @@
 // Конфигурация игры
-// Phase 3: Тестовое изменение для ветки
+// Phase 3: Добавлены снайперская башня, быстрые враги и ландшафт
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
